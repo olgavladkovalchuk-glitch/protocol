@@ -387,22 +387,8 @@
       );
     };
 
+    // --- FIX: NO PARALLAX ---
     const Weapon = ({ isFiring, tool }) => {
-      const [position, setPosition] = useState({ x: 0, y: 0 });
-
-      useEffect(() => {
-        const handleMouseMove = (e) => {
-          const xOffset =
-            (e.clientX / window.innerWidth - 0.5) * 10;
-          const yOffset =
-            (e.clientY / window.innerHeight - 0.5) * 10;
-          setPosition({ x: xOffset, y: yOffset });
-        };
-        window.addEventListener("mousemove", handleMouseMove);
-        return () =>
-          window.removeEventListener("mousemove", handleMouseMove);
-      }, []);
-
       let weaponImage = null;
       if (tool === "spray")  weaponImage = ASSETS.WEAPON_SPRAY;
       else if (tool === "brush")   weaponImage = ASSETS.WEAPON_BRUSH;
@@ -424,11 +410,12 @@
           "div",
           {
             className:
-              "absolute bottom-0 right-0 z-50 pointer-events-none transition-transform duration-100 ease-out select-none",
+              "absolute z-50 pointer-events-none select-none",
             style: {
-              transform: `translate(${position.x}px, ${position.y}px) ${
-                isFiring ? "scale(1.05)" : "scale(1)"
-              }`
+              bottom: "-40px",
+              right: "-120px",
+              transform: isFiring ? "scale(1.05)" : "scale(1)",
+              transition: "transform 0.1s ease-out"
             }
           },
           React.createElement("img", {
