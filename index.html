@@ -1,0 +1,1966 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Protocol: Purity</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React UMD -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap");
+
+    :root {
+      --term-bg: #020602;
+      --term-dark: #0a1f0d;
+      --term-dim: #14532d;
+      --term-bright: #4ade80;
+      --term-text: #ecfdf5;
+      --term-alert: #ef4444;
+    }
+
+    body {
+      font-family: "JetBrains Mono", monospace;
+      background-color: var(--term-bg);
+      color: var(--term-text);
+      cursor: crosshair;
+      overflow: hidden;
+    }
+
+    .scanlines {
+      background: linear-gradient(
+        to bottom,
+        rgba(255, 255, 255, 0),
+        rgba(255, 255, 255, 0) 50%,
+        rgba(0, 0, 0, 0.2) 50%,
+        rgba(0, 0, 0, 0.2)
+      );
+      background-size: 100% 4px;
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      pointer-events: none;
+      z-index: 999;
+      opacity: 0.6;
+    }
+
+    .term-border {
+      border: 1px solid var(--term-dim);
+      box-shadow: 0 0 10px rgba(74, 222, 128, 0.1);
+    }
+
+    .term-border-glow {
+      border: 1px solid var(--term-bright);
+      box-shadow: 0 0 15px rgba(74, 222, 128, 0.3);
+    }
+
+    .text-glow {
+      text-shadow: 0 0 5px rgba(74, 222, 128, 0.5);
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: var(--term-dark);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--term-dim);
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--term-bright);
+    }
+
+    @keyframes slide-up {
+      from { transform: translateY(20px); opacity: 0; }
+      to   { transform: translateY(0);   opacity: 1; }
+    }
+    .animate-slide-up {
+      animation: slide-up 0.5s ease-out forwards;
+    }
+
+    .text-glow-strong {
+      text-shadow: 0 0 10px rgba(74, 222, 128, 0.5);
+    }
+
+    .glitch-text {
+      text-shadow: 2px 0 #ef4444, -2px 0 #22c55e;
+    }
+
+    @keyframes monster-jitter {
+      0%   { transform: translateY(0) scale(1); }
+      50%  { transform: translateY(-10px) scale(1.05); }
+      100% { transform: translateY(0) scale(1); }
+    }
+    @keyframes monster-breathe {
+      0%   { transform: scale(1);   filter: brightness(1); }
+      50%  { transform: scale(1.05); filter: brightness(1.2); }
+      100% { transform: scale(1);   filter: brightness(1); }
+    }
+    @keyframes monster-pulse {
+      0%   { transform: scale(1);   opacity: 0.9; }
+      50%  { transform: scale(1.03); opacity: 1;   filter: contrast(1.2); }
+      100% { transform: scale(1);   opacity: 0.9; }
+    }
+    .animate-float-monster {
+      animation: monster-jitter 4s ease-in-out infinite;
+    }
+
+    @keyframes recoil {
+      0%   { transform: translate(0, 0) rotate(0deg); }
+      20%  { transform: translate(10px, 15px) rotate(2deg); }
+      100% { transform: translate(0, 0) rotate(0deg); }
+    }
+    @keyframes scrub {
+      0%   { transform: translate(0, 0) rotate(0deg); }
+      50%  { transform: translate(-15px, 10px) rotate(-10deg); }
+      100% { transform: translate(0, 0) rotate(0deg); }
+    }
+    @keyframes wipe {
+      0%   { transform: translate(0, 0) rotate(0deg); }
+      25%  { transform: translate(-30px, -10px) rotate(-5deg); }
+      75%  { transform: translate(10px, 10px) rotate(5deg); }
+      100% { transform: translate(0, 0) rotate(0deg); }
+    }
+    @keyframes idle {
+      0%,100% { transform: translateY(0); }
+      50%     { transform: translateY(8px); }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script>
+    const { useState, useEffect, useRef } = React;
+
+    const ASSETS = {
+      DIRTY_BG_L1: "https://i.ibb.co/6024fdtY/79905d38-nano-2-K.png",
+      CLEAN_BG_L1: "https://i.ibb.co/zyHNBSw/ad69adc6-nano-2-K.png",
+      DIRTY_BG_L2: "https://i.ibb.co/hJnqWcSg/2d01dff3-nano-2-K.png",
+      CLEAN_BG_L2: "https://i.ibb.co/FbQdPvFr/3b534032-nano-2-K.png",
+      DIRTY_BG_L3: "https://i.ibb.co/wNZrD8M4/199e9d26-nano-2-K.png",
+      CLEAN_BG_L3: "https://i.ibb.co/SDTPLkxy/ff712b42-nano-2-K.png",
+
+      WEAPON_SPRAY:  "https://i.ibb.co/3mVp7LWQ/20bd93f0-nano-2-K-Photoroom.png",
+      WEAPON_BRUSH:  "https://i.ibb.co/x8KmYCXh/ced828d2-nano-2-K-Photoroom.png",
+      WEAPON_SPONGE: "https://i.ibb.co/q3Cq3cwR/dfcab374-nano-2-K-Photoroom.png",
+
+      MONSTER_DUST:   "https://i.ibb.co/whPsPQr0/photo-2025-12-23-15-00-06.jpg",
+      MONSTER_MOLD:   "https://i.ibb.co/1YqXYJfr/photo-2025-12-23-15-18-38.jpg",
+      MONSTER_GREASE: "https://i.ibb.co/XZD3tX8M/452c5cde-gemini.jpg",
+
+      ICON_SPRAY:  "https://i.ibb.co/Xfb9sPXz/photo-2025-12-23-14-20-30-Photoroom.png",
+      ICON_SPONGE: "https://i.ibb.co/KpGVRmYM/photo-2025-12-23-15-11-47-Photoroom.png",
+      ICON_BRUSH:  "https://i.ibb.co/FbWB1NP1/e9320179-nano-2-K-Photoroom.png",
+
+      AUTHOR_AVATAR: "https://i.ibb.co/ksNSrZvY/photo-2025-12-23-17-23-04.jpg",
+      CHANNEL_LOGO:  "https://i.ibb.co/KpGVRmYM/photo-2025-12-23-15-11-47-Photoroom.png",
+      HORROR_OST:   "",
+      SFX_CLICK:    "",
+      SFX_INCOMING: "",
+      SFX_SCAN:     "",
+      SFX_CLEAN:    "",
+      SFX_WIN:      "",
+      SFX_LOSE:     ""
+    };
+
+    const GameState = {
+      PRELOAD: "PRELOAD",
+      BOOT: "BOOT",
+      INCOMING: "INCOMING",
+      MAP: "MAP",
+      BRIEFING: "BRIEFING",
+      INVENTORY: "INVENTORY",
+      ACTION: "ACTION",
+      REPORT: "REPORT",
+      CREDITS: "CREDITS"
+    };
+
+    const LEVELS = {
+      1: {
+        id: 1,
+        name: "КОРИДОР",
+        sector: "СЕКТОР A-1 (ЖИЛОЙ)",
+        camId: "CAM-01",
+        description:
+          "Входная зона объекта. Датчики фиксируют критическое скопление пылевых структур, препятствующих свободе перемещения граждан.",
+        bgDirty: ASSETS.DIRTY_BG_L1,
+        bgClean: ASSETS.CLEAN_BG_L1,
+        bestTool: "spray",
+        timeLimit: 60,
+        monster: {
+          type: "dust",
+          codename: "СУБЪЕКТ 'ПЫЛЬ'",
+          description:
+            "Колония микрочастиц. Блокирует дыхательные пути и веру в светлое будущее.",
+          meme: "Чистота - залог лояльности."
+        }
+      },
+      2: {
+        id: 2,
+        name: "ВАННАЯ",
+        sector: "СЕКТОР B-4 (САНУЗЕЛ)",
+        camId: "CAM-02",
+        description:
+          "Зона повышенной влажности. Обнаружена разумная грибковая цивилизация в межплиточных швах. Требуется немедленная депортация.",
+        bgDirty: ASSETS.DIRTY_BG_L2,
+        bgClean: ASSETS.CLEAN_BG_L2,
+        bestTool: "brush",
+        timeLimit: 60,
+        monster: {
+          type: "mold",
+          codename: "СУБЪЕКТ 'ПЛЕСЕНЬ'",
+          description:
+            "Агрессивная биомасса. Шепчет антисоветские лозунги по ночам.",
+          meme: "Я здесь давно. Я здесь навсегда."
+        }
+      },
+      3: {
+        id: 3,
+        name: "КУХНЯ",
+        sector: "СЕКТОР C-9 (ПИЩЕБЛОК)",
+        camId: "CAM-03",
+        description:
+          "Стратегический объект питания. Полностью захвачен жировыми отложениями класса 'Оливье'. Риск биологического заражения 98%.",
+        bgDirty: ASSETS.DIRTY_BG_L3,
+        bgClean: ASSETS.CLEAN_BG_L3,
+        bestTool: "sponge",
+        timeLimit: 60,
+        monster: {
+          type: "grease",
+          codename: "СУБЪЕКТ 'ЖИР'",
+          description:
+            "Вязкая субстанция, поглощающая надежду и моющие средства. Крайне устойчив к уговорам.",
+          meme: "Ты то, что ты не отмыл."
+        }
+      }
+    };
+
+    const CssMonster = ({ type }) => {
+      const renderImageMonster = (src, alt, animation, filter) => (
+        React.createElement(
+          "div",
+          { className: "flex justify-center my-6 filter " + filter },
+          React.createElement(
+            "div",
+            { className: "relative w-56 h-56 animate-float-monster" },
+            React.createElement("img", {
+              src,
+              alt,
+              className: "w-full h-full object-contain drop-shadow-2xl rounded-xl",
+              style: { animation }
+            })
+          )
+        )
+      );
+
+      if (type === "dust")  return renderImageMonster(ASSETS.MONSTER_DUST,  "Dust",  "monster-jitter 3s infinite ease-in-out",  "drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]");
+      if (type === "mold")  return renderImageMonster(ASSETS.MONSTER_MOLD,  "Mold",  "monster-breathe 4s infinite ease-in-out", "drop-shadow-[0_0_20px_rgba(0,255,100,0.4)]");
+      if (type === "grease")return renderImageMonster(ASSETS.MONSTER_GREASE,"Grease","monster-pulse 2s infinite ease-in-out",   "drop-shadow-[0_0_25px_rgba(234,179,8,0.6)] sepia-[0.2]");
+      return null;
+    };
+
+    const GameCanvas = ({
+      onProgress,
+      isInteractive,
+      onShoot,
+      dirtyBgUrl,
+      cleanBgUrl,
+      efficiency,
+      minPollution
+    }) => {
+      const canvasRef = useRef(null);
+      const containerRef = useRef(null);
+      const pollutionRef = useRef(100);
+
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        const container = containerRef.current;
+        if (!canvas || !container) return;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        pollutionRef.current = 100;
+        onProgress(100);
+
+        const img = new Image();
+        img.src = dirtyBgUrl;
+
+        const draw = () => {
+          if (!container || !canvas) return;
+          canvas.width = container.clientWidth;
+          canvas.height = container.clientHeight;
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        };
+
+        img.onload = () => {
+          draw();
+          setTimeout(draw, 100);
+        };
+
+        window.addEventListener("resize", draw);
+        return () => window.removeEventListener("resize", draw);
+      }, [dirtyBgUrl]);
+
+      const handleInteraction = (e) => {
+        if (!isInteractive) return;
+        onShoot();
+        if (pollutionRef.current <= minPollution) return;
+
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        const rect = canvas.getBoundingClientRect();
+        let clientX, clientY;
+        if ("touches" in e) {
+          clientX = e.touches[0].clientX;
+          clientY = e.touches[0].clientY;
+        } else {
+          clientX = e.clientX;
+          clientY = e.clientY;
+        }
+
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+
+        ctx.globalCompositeOperation = "destination-out";
+        const sprayRadius = 50;
+
+        const gradient = ctx.createRadialGradient(
+          x, y, 0, x, y, sprayRadius
+        );
+        gradient.addColorStop(0, "rgba(0,0,0,1)");
+        gradient.addColorStop(0.5, "rgba(0,0,0,0.8)");
+        gradient.addColorStop(1, "rgba(0,0,0,0)");
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(x, y, sprayRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalCompositeOperation = "source-over";
+
+        const brushArea = Math.PI * sprayRadius * sprayRadius;
+        const totalArea = canvas.width * canvas.height;
+        const speedMultiplier = 0.15;
+        const cleanAmount =
+          (brushArea / totalArea) * 100 * speedMultiplier * efficiency;
+
+        const potentialPollution =
+          pollutionRef.current - cleanAmount;
+        pollutionRef.current = Math.max(
+          potentialPollution,
+          minPollution
+        );
+        onProgress(pollutionRef.current);
+      };
+
+      return (
+        React.createElement(
+          "div",
+          {
+            ref: containerRef,
+            className: "absolute inset-0 w-full h-full bg-black select-none overflow-hidden"
+          },
+          React.createElement("div", {
+            className: "absolute inset-0 bg-no-repeat bg-cover bg-center",
+            style: { backgroundImage: `url(${cleanBgUrl})` }
+          }),
+          React.createElement("canvas", {
+            ref: canvasRef,
+            className: "absolute inset-0 cursor-crosshair touch-none",
+            onMouseDown: handleInteraction,
+            onTouchStart: handleInteraction,
+            onMouseMove: (e) => { if (e.buttons === 1) handleInteraction(e); },
+            onTouchMove: handleInteraction
+          })
+        )
+      );
+    };
+
+    const Weapon = ({ isFiring, tool }) => {
+      const [position, setPosition] = useState({ x: 0, y: 0 });
+
+      useEffect(() => {
+        const handleMouseMove = (e) => {
+          const xOffset =
+            (e.clientX / window.innerWidth - 0.5) * 10;
+          const yOffset =
+            (e.clientY / window.innerHeight - 0.5) * 10;
+          setPosition({ x: xOffset, y: yOffset });
+        };
+        window.addEventListener("mousemove", handleMouseMove);
+        return () =>
+          window.removeEventListener("mousemove", handleMouseMove);
+      }, []);
+
+      let weaponImage = null;
+      if (tool === "spray")  weaponImage = ASSETS.WEAPON_SPRAY;
+      else if (tool === "brush")   weaponImage = ASSETS.WEAPON_BRUSH;
+      else if (tool === "sponge")  weaponImage = ASSETS.WEAPON_SPONGE;
+      if (!weaponImage) return null;
+
+      const getAnimation = () => {
+        if (!isFiring) return "idle 4s infinite ease-in-out";
+        switch (tool) {
+          case "spray":  return "recoil 0.2s ease-in-out infinite";
+          case "brush":  return "scrub 0.2s ease-in-out infinite";
+          case "sponge": return "wipe 0.4s ease-in-out infinite";
+          default:       return "idle 4s infinite ease-in-out";
+        }
+      };
+
+      return (
+        React.createElement(
+          "div",
+          {
+            className:
+              "absolute bottom-0 right-0 z-50 pointer-events-none transition-transform duration-100 ease-out select-none",
+            style: {
+              transform: `translate(${position.x}px, ${position.y}px) ${
+                isFiring ? "scale(1.05)" : "scale(1)"
+              }`
+            }
+          },
+          React.createElement("img", {
+            src: weaponImage,
+            alt: "Weapon",
+            className:
+              "h-[80vh] max-h-[800px] object-contain origin-bottom-right drop-shadow-2xl",
+            style: { animation: getAnimation() }
+          })
+        )
+      );
+    };
+
+    const App = () => {
+      const [gameState, setGameState] = useState(GameState.PRELOAD);
+      const [loadProgress, setLoadProgress] = useState(0);
+      const [currentLevelId, setCurrentLevelId] = useState(1);
+      const [levelsStatus, setLevelsStatus] = useState({
+        1: "active",
+        2: "locked",
+        3: "locked"
+      });
+
+      const [pollution, setPollution] = useState(100);
+      const [isFiring, setIsFiring] = useState(false);
+      const [selectedTool, setSelectedTool] = useState(null);
+
+      const [timeLeft, setTimeLeft] = useState(60);
+      const [timerActive, setTimerActive] = useState(false);
+      const [scanProgress, setScanProgress] = useState(0);
+
+      const currentLevel = LEVELS[currentLevelId];
+
+      useEffect(() => {
+        if (gameState !== GameState.PRELOAD) return;
+
+        const assetsToLoad = Object.values(ASSETS);
+        Object.values(LEVELS).forEach((lvl) => {
+          if (lvl.bgDirty) assetsToLoad.push(lvl.bgDirty);
+          if (lvl.bgClean) assetsToLoad.push(lvl.bgClean);
+        });
+
+        const uniqueImages = [
+          ...new Set(
+            assetsToLoad.filter(
+              (a) =>
+                a &&
+                a.length > 0 &&
+                !a.endsWith(".ogg") &&
+                !a.endsWith(".mp3")
+            )
+          )
+        ];
+
+        if (uniqueImages.length === 0) {
+          setGameState(GameState.BOOT);
+          return;
+        }
+
+        let loadedCount = 0;
+        let mounted = true;
+
+        const updateProgress = () => {
+          if (!mounted) return;
+          loadedCount++;
+          const percent = Math.floor(
+            (loadedCount / uniqueImages.length) * 100
+          );
+          setLoadProgress(percent);
+          if (loadedCount >= uniqueImages.length) {
+            setTimeout(() => {
+              if (mounted) setGameState(GameState.BOOT);
+            }, 500);
+          }
+        };
+
+        const safetyTimeout = setTimeout(() => {
+          if (mounted && loadedCount < uniqueImages.length) {
+            setGameState(GameState.BOOT);
+          }
+        }, 7000);
+
+        uniqueImages.forEach((src) => {
+          const img = new Image();
+          img.onload = updateProgress;
+          img.onerror = updateProgress;
+          img.src = src;
+        });
+
+        return () => {
+          mounted = false;
+          clearTimeout(safetyTimeout);
+        };
+      }, [gameState]);
+
+      const playClick = () => {};
+
+      useEffect(() => {}, [gameState, pollution]);
+
+      useEffect(() => {
+        let interval;
+        if (
+          timerActive &&
+          timeLeft > 0 &&
+          gameState === GameState.ACTION
+        ) {
+          interval = setInterval(() => {
+            setTimeLeft((prev) => {
+              if (prev <= 1) {
+                handleTimeOut();
+                return 0;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+        }
+        return () => clearInterval(interval);
+      }, [timerActive, timeLeft, gameState]);
+
+      const handleBoot = () => {
+        playClick();
+        setGameState(GameState.INCOMING);
+      };
+
+      const handleIncomingAccept = () => {
+        playClick();
+        setGameState(GameState.MAP);
+      };
+
+      const handleSelectLevel = (id) => {
+        if (levelsStatus[id] === "locked") return;
+        playClick();
+        setCurrentLevelId(id);
+        setGameState(GameState.BRIEFING);
+        setScanProgress(0);
+        let progress = 0;
+        const scanInterval = setInterval(() => {
+          progress += 2;
+          setScanProgress(progress);
+          if (progress >= 100) clearInterval(scanInterval);
+        }, 30);
+      };
+
+      const handleTimeOut = () => {
+        setTimerActive(false);
+        setGameState(GameState.REPORT);
+      };
+
+      const handleShoot = () => {
+        if (!timerActive && gameState === GameState.ACTION)
+          setTimerActive(true);
+        setIsFiring(true);
+        setTimeout(() => setIsFiring(false), 150);
+      };
+
+      const handlePollutionUpdate = (val) => {
+        setPollution(val);
+        if (val <= 5) {
+          setTimerActive(false);
+          setGameState(GameState.REPORT);
+        }
+      };
+
+      const selectTool = (tool) => {
+        playClick();
+        setSelectedTool(tool);
+        setPollution(100);
+        setTimeLeft(currentLevel.timeLimit);
+        setGameState(GameState.ACTION);
+      };
+
+      const getEfficiency = () => 1.0;
+
+      const handleLevelComplete = (success) => {
+        if (
+          success &&
+          currentLevelId === Object.keys(LEVELS).length
+        ) {
+          playClick();
+          setLevelsStatus((prev) => ({
+            ...prev,
+            [currentLevelId]: "cleared"
+          }));
+          setGameState(GameState.CREDITS);
+          return;
+        }
+
+        const nextId = currentLevelId + 1;
+
+        setLevelsStatus((prev) => ({
+          ...prev,
+          [currentLevelId]: success ? "cleared" : "failed",
+          [nextId]:
+            success && prev[nextId] === "locked"
+              ? "active"
+              : prev[nextId]
+        }));
+
+        playClick();
+        setGameState(GameState.MAP);
+        setPollution(100);
+      };
+
+      const renderPreloader = () =>
+        React.createElement(
+          "div",
+          {
+            className:
+              "flex flex-col items-center justify-center h-full bg-[#020602] text-green-500 w-full p-8 font-mono"
+          },
+          React.createElement(
+            "div",
+            { className: "max-w-md w-full" },
+            React.createElement(
+              "div",
+              { className: "text-xs mb-2" },
+              "INITIALIZING PROTOCOL..."
+            ),
+            React.createElement(
+              "div",
+              {
+                className:
+                  "w-full h-4 border border-green-800 p-0.5 bg-black mb-4"
+              },
+              React.createElement("div", {
+                className:
+                  "h-full bg-green-500 transition-all duration-100 ease-out",
+                style: { width: loadProgress + "%" }
+              })
+            ),
+            React.createElement(
+              "div",
+              {
+                className:
+                  "flex justify-between text-xs text-green-700"
+              },
+              React.createElement("span", null, "LOADING ASSETS"),
+              React.createElement("span", null, loadProgress + "%")
+            )
+          )
+        );
+
+      const renderBoot = () =>
+        React.createElement(
+          "div",
+          {
+            className:
+              "flex flex-col items-center justify-center h-full bg-[#020602] text-green-500 relative w-full cursor-pointer",
+            onClick: handleBoot
+          },
+          React.createElement(
+            "div",
+            {
+              className:
+                "animate-pulse text-2xl font-bold tracking-[0.5em] mb-4 text-glow-strong"
+            },
+            "СИСТЕМА ГОТОВА"
+          ),
+          React.createElement(
+            "div",
+            {
+              className: "text-sm font-mono text-green-700 mb-8"
+            },
+            "[ КЛИКНИТЕ ДЛЯ ЗАПУСКА ]"
+          ),
+          React.createElement(
+            "button",
+            {
+              className:
+                "px-8 py-4 border border-green-500 bg-green-900/20 hover:bg-green-500 hover:text-black transition-all font-mono uppercase tracking-widest text-lg shadow-[0_0_20px_rgba(34,197,94,0.2)] animate-pulse"
+            },
+            "ЗАГРУЗИТЬ ТЕРМИНАЛ"
+          )
+        );
+
+      const renderIncoming = () =>
+        React.createElement(
+          "div",
+          {
+            className:
+              "flex flex-col items-center justify-center h-full bg-[#020602] text-green-500 relative overflow-hidden w-full"
+          },
+          React.createElement("div", {
+            className:
+              "absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')] opacity-20 pointer-events-none"
+          }),
+          React.createElement(
+            "div",
+            {
+              className:
+                "relative z-10 flex flex-col items-center animate-slide-up"
+            },
+            React.createElement(
+              "div",
+              {
+                className:
+                  "relative w-64 h-64 flex items-center justify-center mb-12"
+              },
+              React.createElement("div", {
+                className:
+                  "absolute inset-0 border-[1px] border-green-500/20 rounded-full animate-[ping_3s_ease-out_infinite]"
+              }),
+              React.createElement("div", {
+                className:
+                  "absolute inset-8 border-[2px] border-green-500/40 rounded-full animate-[ping_3s_ease-out_infinite_1s]"
+              }),
+              React.createElement("div", {
+                className:
+                  "absolute inset-16 border-[4px] border-green-500/60 rounded-full animate-[pulse_2s_ease-in-out_infinite]"
+              }),
+              React.createElement("div", {
+                className:
+                  "absolute w-2 h-2 bg-green-400 rounded-full shadow-[0_0_20px_#22c55e]"
+              }),
+              React.createElement("div", {
+                className:
+                  "absolute inset-0 border-2 border-green-900 rotate-45 scale-75 opacity-50"
+              }),
+              React.createElement(
+                "div",
+                {
+                  className:
+                    "absolute -bottom-8 font-mono text-xs text-green-600 tracking-widest animate-pulse"
+                },
+                "СИГНАЛ: СТАБИЛЬНЫЙ"
+              )
+            ),
+            React.createElement(
+              "h1",
+              {
+                className:
+                  "text-4xl font-bold tracking-[0.2em] mb-4 text-center text-glow-strong uppercase"
+              },
+              "ВХОДЯЩИЙ ЗАПРОС"
+            ),
+            React.createElement(
+              "p",
+              {
+                className:
+                  "font-mono text-green-400/70 mb-12 tracking-widest text-sm bg-green-900/10 px-4 py-1 border border-green-900/50"
+              },
+              "ПРИОРИТЕТ: УЛЬТРА-ВЫСОКИЙ"
+            ),
+            React.createElement(
+              "button",
+              {
+                onClick: handleIncomingAccept,
+                className:
+                  "px-16 py-5 bg-green-900/40 border-2 border-green-500 text-green-400 hover:bg-green-500 hover:text-black hover:scale-105 transition-all font-mono text-xl tracking-[0.2em] uppercase shadow-[0_0_30px_rgba(34,197,94,0.3)] cursor-pointer select-none active:scale-95 group"
+              },
+              React.createElement(
+                "span",
+                { className: "group-hover:animate-pulse" },
+                "УСТАНОВИТЬ СВЯЗЬ"
+              )
+            )
+          )
+        );
+
+      const renderMap = () =>
+        React.createElement(
+          "div",
+          {
+            className:
+              "flex h-full bg-[#050a05] text-green-500 font-mono w-full overflow-hidden p-2 md:p-4 gap-4"
+          },
+          React.createElement(
+            "div",
+            { className: "flex-1 flex flex-col gap-2" },
+            React.createElement(
+              "div",
+              {
+                className:
+                  "flex justify-between items-end border-b border-green-800 pb-2"
+              },
+              React.createElement(
+                "h2",
+                {
+                  className:
+                    "text-xl md:text-2xl font-bold uppercase tracking-widest text-glow-strong"
+                },
+                "ПОСТ ОХРАНЫ"
+              ),
+              React.createElement(
+                "div",
+                {
+                  className:
+                    "text-[10px] md:text-xs text-green-700 animate-pulse"
+                },
+                "● LIVE FEED"
+              )
+            ),
+            React.createElement(
+              "div",
+              {
+                className:
+                  "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4 h-full overflow-y-auto pr-2 pb-2 content-start"
+              },
+              Object.values(LEVELS).map((level) => {
+                const status = levelsStatus[level.id] || "locked";
+                const isLocked = status === "locked";
+                const isCleared = status === "cleared";
+                const isActive = status === "active";
+
+                return React.createElement(
+                  "button",
+                  {
+                    key: level.id,
+                    onClick: () => handleSelectLevel(level.id),
+                    disabled: isLocked,
+                    className:
+                      "relative aspect-video bg-black border-2 flex flex-col group overflow-hidden transition-all " +
+                      (isLocked
+                        ? "border-gray-800 cursor-not-allowed opacity-50 "
+                        : "cursor-pointer hover:border-green-400 ") +
+                      (isActive
+                        ? "border-green-600 shadow-[0_0_15px_rgba(34,197,94,0.2)] "
+                        : "") +
+                      (isCleared ? "border-green-900 " : "")
+                  },
+                  React.createElement(
+                    "div",
+                    {
+                      className:
+                        "flex-1 relative w-full h-full bg-black/90 overflow-hidden"
+                    },
+                    isLocked
+                      ? React.createElement(
+                          "div",
+                          {
+                            className:
+                              "absolute inset-0 flex items-center justify-center bg-[url('https://media.giphy.com/media/oEI9uBYSzLpBK/giphy.gif')] bg-cover opacity-10 grayscale"
+                          },
+                          React.createElement(
+                            "span",
+                            {
+                              className:
+                                "bg-black text-gray-500 px-2 py-1 text-xs font-bold border border-gray-700"
+                            },
+                            "NO SIGNAL"
+                          )
+                        )
+                      : React.createElement(
+                          React.Fragment,
+                          null,
+                          React.createElement("div", {
+                            className:
+                              "absolute inset-0 bg-cover bg-center transition-all duration-500 " +
+                              (isCleared
+                                ? "grayscale brightness-50"
+                                : "group-hover:scale-110"),
+                            style: {
+                              backgroundImage: `url(${level.bgDirty})`
+                            }
+                          }),
+                          React.createElement(
+                            "div",
+                            {
+                              className:
+                                "absolute top-2 left-2 text-[10px] bg-black/50 px-1 border border-green-900/50 text-green-500"
+                            },
+                            level.camId
+                          ),
+                          React.createElement(
+                            "div",
+                            {
+                              className:
+                                "absolute top-2 right-2 text-[10px] text-red-500 font-bold animate-pulse"
+                            },
+                            isCleared ? "" : "● REC"
+                          ),
+                          React.createElement("div", {
+                            className:
+                              "absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.4)_50%)] bg-[length:100%_4px] pointer-events-none opacity-50"
+                          }),
+                          !isCleared &&
+                            React.createElement(
+                              "div",
+                              {
+                                className:
+                                  "absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-green-900/30 backdrop-blur-[1px]"
+                              },
+                              React.createElement(
+                                "div",
+                                {
+                                  className:
+                                    "border-2 border-green-500 px-4 py-2 text-black bg-green-500 font-bold tracking-widest uppercase text-sm"
+                                },
+                                "ПЕРЕХВАТИТЬ УПРАВЛЕНИЕ"
+                              )
+                            )
+                        )
+                  ),
+                  React.createElement(
+                    "div",
+                    {
+                      className:
+                        "bg-[#0a150a] p-2 flex justify-between items-center text-[10px] md:text-xs border-t border-green-900/50 w-full"
+                    },
+                    React.createElement(
+                      "div",
+                      { className: "text-gray-400" },
+                      level.sector
+                    ),
+                    React.createElement(
+                      "div",
+                      {
+                        className:
+                          "font-bold uppercase " +
+                          (isCleared
+                            ? "text-green-700"
+                            : isLocked
+                            ? "text-gray-700"
+                            : "text-green-400")
+                      },
+                      isLocked
+                        ? "OFFLINE"
+                        : isCleared
+                        ? "CLEARED"
+                        : "ALERT"
+                    )
+                  )
+                );
+              })
+            )
+          ),
+          React.createElement(
+            "div",
+            {
+              className:
+                "hidden md:flex w-64 lg:w-80 flex-col border-l border-green-900 pl-4 bg-black/20"
+            },
+            React.createElement(
+              "div",
+              {
+                className:
+                  "mb-4 text-xs font-bold text-green-700 border-b border-green-900 pb-1"
+              },
+              "СИСТЕМНЫЙ ЖУРНАЛ"
+            ),
+            React.createElement(
+              "div",
+              {
+                className:
+                  "flex-1 overflow-y-auto font-mono text-[10px] space-y-3 text-green-400/80 pr-2"
+              },
+              React.createElement(
+                "div",
+                { className: "opacity-50" },
+                React.createElement(
+                  "span",
+                  { className: "text-green-700" },
+                  "[08:00]"
+                ),
+                " СИСТЕМА ЗАГРУЖЕНА.",
+                React.createElement("br", null),
+                "Проверка периметра... ",
+                React.createElement(
+                  "span",
+                  { className: "text-green-500" },
+                  "OK"
+                )
+              ),
+              React.createElement(
+                "div",
+                { className: "opacity-60" },
+                React.createElement(
+                  "span",
+                  { className: "text-green-700" },
+                  "[08:15]"
+                ),
+                " ВНИМАНИЕ:",
+                React.createElement("br", null),
+                "Повышенный уровень загрязнения в Секторе А-1. Гражданам рекомендовано задержать дыхание."
+              ),
+              React.createElement(
+                "div",
+                {
+                  className:
+                    levelsStatus[2] !== "locked" ? "block" : "hidden"
+                },
+                React.createElement(
+                  "span",
+                  { className: "text-green-700" },
+                  "[09:42]"
+                ),
+                " ИНЦИДЕНТ:",
+                React.createElement("br", null),
+                "В санузле зафиксирована попытка суверенитета плесени. Отправлен запрос на зачистку."
+              ),
+              React.createElement(
+                "div",
+                {
+                  className:
+                    levelsStatus[3] !== "locked" ? "block" : "hidden"
+                },
+                React.createElement(
+                  "span",
+                  { className: "text-red-900" },
+                  "[12:00]"
+                ),
+                " ",
+                React.createElement(
+                  "span",
+                  {
+                    className:
+                      "text-red-500 bg-red-900/20 px-1"
+                  },
+                  "ТРЕВОГА"
+                ),
+                React.createElement("br", null),
+                "Пищеблок не отвечает. Жировые отложения заблокировали двери. Требуется спецсредство \"ГУБКА\"."
+              ),
+              React.createElement(
+                "div",
+                {
+                  className:
+                    "mt-4 border-t border-green-900 pt-2 italic text-green-800"
+                },
+                "> \"Чистота - это не право, это обязанность.\"",
+                React.createElement("br", null),
+                "-- Администрация"
+              )
+            ),
+            React.createElement(
+              "div",
+              {
+                className:
+                  "mt-auto border-t border-green-900 pt-2"
+              },
+              React.createElement(
+                "div",
+                {
+                  className:
+                    "flex justify-between text-[10px] text-gray-500"
+                },
+                React.createElement("span", null, "CPU: 8%"),
+                React.createElement("span", null, "MEM: 124TB")
+              ),
+              React.createElement(
+                "div",
+                {
+                  className:
+                    "text-[10px] text-gray-600 mt-1"
+                },
+                "PROTOCOL: PURITY v1.0.4"
+              )
+            )
+          )
+        );
+
+      const renderBriefing = () => {
+        const isScanned = scanProgress >= 100;
+
+        return React.createElement(
+          "div",
+          {
+            className:
+              "absolute inset-0 z-50 bg-[#020602] w-full h-full"
+          },
+          React.createElement(
+            "div",
+            {
+              className:
+                "absolute inset-0 opacity-20 pointer-events-none"
+            },
+            React.createElement(GameCanvas, {
+              isInteractive: false,
+              onProgress: () => {},
+              onShoot: () => {},
+              dirtyBgUrl: currentLevel.bgDirty,
+              cleanBgUrl: currentLevel.bgClean,
+              efficiency: 1,
+              minPollution: 0
+            })
+          ),
+          React.createElement(
+            "div",
+            {
+              className:
+                "absolute inset-0 flex items-center justify-center p-4 bg-gradient-to-t from-black via-black/95 to-black/80 z-10"
+            },
+            !isScanned
+              ? React.createElement(
+                  "div",
+                  {
+                    className:
+                      "w-full max-w-lg text-center relative z-20"
+                  },
+                  React.createElement(
+                    "h2",
+                    {
+                      className:
+                        "text-4xl font-bold text-green-500 animate-pulse mb-4 text-glow-strong"
+                    },
+                    "СКАНИРОВАНИЕ..."
+                  ),
+                  React.createElement(
+                    "div",
+                    {
+                      className:
+                        "w-full h-8 border-2 border-green-800 p-1 bg-black"
+                    },
+                    React.createElement("div", {
+                      className:
+                        "h-full bg-green-500 transition-all duration-75 ease-linear shadow-[0_0_15px_#22c55e]",
+                      style: { width: scanProgress + "%" }
+                    })
+                  ),
+                  React.createElement(
+                    "div",
+                    {
+                      className:
+                        "font-mono text-green-400 mt-4 text-sm text-left border border-green-900 p-2 bg-black/50"
+                    },
+                    "> CONNECTING TO ",
+                    currentLevel.camId,
+                    "...",
+                    React.createElement("br", null),
+                    "> ANALYZING PARTICLES... ",
+                    scanProgress,
+                    "%",
+                    React.createElement("br", null),
+                    "> THREAT LEVEL: CRITICAL"
+                  )
+                )
+              : React.createElement(
+                  "div",
+                  {
+                    className:
+                      "w-full max-w-4xl border-2 border-green-500 bg-black p-8 shadow-[0_0_50px_rgba(34,197,94,0.15)] flex flex-col md:flex-row gap-8 animate-slide-up relative z-20"
+                  },
+                  React.createElement(
+                    "div",
+                    {
+                      className:
+                        "w-full md:w-1/3 border border-green-800 bg-[#051005] flex items-center justify-center p-6 shrink-0 relative overflow-hidden"
+                    },
+                    React.createElement("div", {
+                      className:
+                        "absolute inset-0 bg-[linear-gradient(rgba(0,255,0,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(0,255,0,0.05)_1px,transparent_1px)] bg-[size:20px_20px]"
+                    }),
+                    React.createElement(CssMonster, {
+                      type: currentLevel.monster.type
+                    })
+                  ),
+                  React.createElement(
+                    "div",
+                    {
+                      className:
+                        "flex-1 font-mono text-green-400 flex flex-col"
+                    },
+                    React.createElement(
+                      "div",
+                      {
+                        className:
+                          "flex items-center justify-between border-b-2 border-green-800 pb-2 mb-6"
+                      },
+                      React.createElement(
+                        "h2",
+                        {
+                          className:
+                            "text-2xl font-bold text-white"
+                        },
+                        "ОТЧЕТ РАЗВЕДКИ"
+                      ),
+                      React.createElement(
+                        "div",
+                        {
+                          className:
+                            "text-xs bg-red-900 text-white px-2 py-1 font-bold animate-pulse"
+                        },
+                        "УГРОЗА ОБНАРУЖЕНА"
+                      )
+                    ),
+                    React.createElement(
+                      "div",
+                      { className: "space-y-6 flex-1" },
+                      React.createElement(
+                        "div",
+                        null,
+                        React.createElement(
+                          "span",
+                          {
+                            className:
+                              "text-gray-500 text-xs uppercase tracking-wider block mb-1"
+                          },
+                          "КОДОВОЕ ИМЯ"
+                        ),
+                        React.createElement(
+                          "div",
+                          {
+                            className:
+                              "text-3xl font-bold text-green-400 glitch-text"
+                          },
+                          currentLevel.monster.codename
+                        )
+                      ),
+                      React.createElement(
+                        "div",
+                        {
+                          className:
+                            "bg-gray-900/50 p-4 border-l-4 border-green-600"
+                        },
+                        React.createElement(
+                          "span",
+                          {
+                            className:
+                              "text-gray-500 text-xs uppercase tracking-wider block mb-2"
+                          },
+                          "ОПИСАНИЕ УГРОЗЫ"
+                        ),
+                        React.createElement(
+                          "p",
+                          {
+                            className:
+                              "leading-relaxed text-white text-lg"
+                          },
+                          currentLevel.monster.description
+                        )
+                      ),
+                      React.createElement(
+                        "div",
+                        {
+                          className:
+                            "bg-green-900/20 border border-green-700 p-3 italic text-sm text-green-200 text-center"
+                        },
+                        '"',
+                        currentLevel.monster.meme,
+                        '"'
+                      )
+                    ),
+                    React.createElement(
+                      "button",
+                      {
+                        onClick: () => {
+                          playClick();
+                          setGameState(GameState.INVENTORY);
+                        },
+                        className:
+                          "mt-8 w-full py-5 bg-green-600 text-black text-xl font-bold hover:bg-white hover:text-black transition-all uppercase tracking-widest shadow-lg"
+                      },
+                      "ВЫДАТЬ СНАРЯЖЕНИЕ"
+                    )
+                  )
+                )
+          )
+        );
+      };
+
+      const renderInventory = () =>
+        React.createElement(
+          "div",
+          {
+            className:
+              "flex flex-col items-center justify-center h-full bg-[#0a0f0a] text-white p-8 relative z-20 w-full"
+          },
+          React.createElement(
+            "div",
+            {
+              className:
+                "absolute top-4 left-4 text-xs font-mono text-green-700"
+            },
+            "СКЛАД №42"
+          ),
+          React.createElement(
+            "h2",
+            {
+              className:
+                "text-2xl mb-2 text-green-500 font-mono tracking-widest uppercase text-glow-strong"
+            },
+            "ВЫДАЧА ИНВЕНТАРЯ"
+          ),
+          React.createElement(
+            "p",
+            {
+              className:
+                "text-gray-500 font-mono text-sm mb-12"
+            },
+            "Выберите средство производства"
+          ),
+          React.createElement(
+            "div",
+            {
+              className:
+                "flex flex-wrap gap-4 md:gap-8 justify-center w-full max-w-4xl"
+            },
+            [
+              {
+                id: "spray",
+                name: "ПУЛЬВЕЛИЗАТОР",
+                desc: "Против Пыли и Стен",
+                icon: ASSETS.ICON_SPRAY
+              },
+              {
+                id: "sponge",
+                name: "ГУБКА",
+                desc: "Против Жира",
+                icon: ASSETS.ICON_SPONGE
+              },
+              {
+                id: "brush",
+                name: "ЕРШИК",
+                desc: "Тяжелая артиллерия",
+                icon: ASSETS.ICON_BRUSH
+              }
+            ].map((item) =>
+              React.createElement(
+                "button",
+                {
+                  key: item.id,
+                  onClick: () => selectTool(item.id),
+                  className:
+                    "group relative w-40 h-60 border-2 flex flex-col items-center justify-center p-4 transition-all duration-300 " +
+                    (item.id === currentLevel.bestTool
+                      ? "border-green-500 bg-green-900/20 shadow-[0_0_20px_rgba(34,197,94,0.2)] scale-105 "
+                      : "border-gray-800 bg-black/80 opacity-60 hover:opacity-100 hover:border-gray-500")
+                },
+                React.createElement(
+                  "div",
+                  {
+                    className:
+                      "flex-1 flex items-center justify-center"
+                  },
+                  React.createElement("img", {
+                    src: item.icon,
+                    alt: item.name,
+                    className:
+                      "w-24 h-24 object-contain filter grayscale group-hover:grayscale-0 transition-all duration-300 drop-shadow-md"
+                  })
+                ),
+                React.createElement(
+                  "div",
+                  { className: "mt-4 w-full text-center" },
+                  React.createElement(
+                    "span",
+                    {
+                      className:
+                        "font-mono text-xs font-bold block mb-1 " +
+                        (item.id === currentLevel.bestTool
+                          ? "text-green-400"
+                          : "text-gray-400 group-hover:text-white")
+                    },
+                    item.name
+                  ),
+                  React.createElement(
+                    "span",
+                    {
+                      className:
+                        "text-[10px] text-gray-500 block leading-tight"
+                    },
+                    item.desc
+                  )
+                ),
+                item.id === currentLevel.bestTool &&
+                  React.createElement(
+                    "div",
+                    {
+                      className:
+                        "absolute -top-3 left-1/2 -translate-x-1/2 bg-green-600 text-black text-[9px] px-2 py-0.5 font-bold uppercase tracking-wider"
+                    },
+                    "РЕКОМЕНДОВАНО"
+                  )
+              )
+            )
+          )
+        );
+
+      const renderAction = () => {
+        const isWrongTool =
+          selectedTool &&
+          selectedTool !== currentLevel.bestTool;
+        const minPollution = isWrongTool ? 95 : 0;
+
+        return React.createElement(
+          "div",
+          { className: "relative w-full h-full overflow-hidden" },
+          React.createElement(GameCanvas, {
+            isInteractive: true,
+            onProgress: handlePollutionUpdate,
+            onShoot: handleShoot,
+            dirtyBgUrl: currentLevel.bgDirty,
+            cleanBgUrl: currentLevel.bgClean,
+            efficiency: getEfficiency(),
+            minPollution: minPollution
+          }),
+          React.createElement(
+            "div",
+            {
+              className:
+                "absolute inset-0 pointer-events-none p-6 flex flex-col justify-between z-30"
+            },
+            React.createElement(
+              "div",
+              {
+                className:
+                  "flex justify-between items-start"
+              },
+              React.createElement(
+                "div",
+                {
+                  className:
+                    "bg-black/80 border border-green-500 p-3 backdrop-blur-sm shadow-[0_0_10px_rgba(0,0,0,0.5)]"
+                },
+                React.createElement(
+                  "div",
+                  {
+                    className:
+                      "text-[10px] text-green-600 mb-1 uppercase tracking-wider font-bold"
+                  },
+                  "Уровень Загрязнения"
+                ),
+                React.createElement(
+                  "div",
+                  {
+                    className:
+                      "w-48 h-4 bg-gray-900 border border-green-900 relative"
+                  },
+                  React.createElement("div", {
+                    className:
+                      "h-full transition-all duration-300 " +
+                      (pollution < 30
+                        ? "bg-green-500 shadow-[0_0_10px_#22c55e]"
+                        : "bg-red-500 shadow-[0_0_10px_#ef4444]"),
+                    style: { width: pollution + "%" }
+                  })
+                ),
+                React.createElement(
+                  "div",
+                  {
+                    className:
+                      "text-right text-xs text-green-400 mt-1 font-mono"
+                  },
+                  pollution.toFixed(0),
+                  "%"
+                )
+              ),
+              React.createElement(
+                "div",
+                {
+                  className:
+                    "bg-black/80 border border-green-500 p-3 min-w-[120px] text-center backdrop-blur-sm shadow-[0_0_10px_rgba(0,0,0,0.5)]"
+                },
+                React.createElement(
+                  "div",
+                  {
+                    className:
+                      "text-[10px] text-green-600 mb-1 uppercase tracking-wider font-bold"
+                  },
+                  "ТАЙМЕР"
+                ),
+                React.createElement(
+                  "div",
+                  {
+                    className:
+                      "text-4xl font-mono font-bold " +
+                      (timeLeft < 10
+                        ? "text-red-500 animate-pulse"
+                        : "text-green-400 text-glow-strong")
+                  },
+                  "00:",
+                  timeLeft.toString().padStart(2, "0")
+                )
+              )
+            ),
+            selectedTool &&
+              selectedTool !== currentLevel.bestTool &&
+              React.createElement(
+                "div",
+                {
+                  className:
+                    "self-center bg-red-900/90 border-2 border-red-500 text-white px-8 py-3 text-lg font-mono animate-bounce uppercase font-bold tracking-widest shadow-[0_0_20px_rgba(239,68,68,0.5)] rounded-sm"
+                },
+                "⚠ НЕЭФФЕКТИВНЫЙ ИНСТРУМЕНТ ⚠"
+              )
+          ),
+          React.createElement(Weapon, {
+            isFiring,
+            tool: selectedTool || "spray"
+          })
+        );
+      };
+
+      const renderReport = () => {
+        const isVictory = pollution <= 5;
+        const isLastLevel =
+          currentLevelId === Object.keys(LEVELS).length;
+
+        return React.createElement(
+          "div",
+          {
+            className:
+              "flex flex-col items-center justify-center h-full bg-[#0a0f0a] relative z-50 p-4 w-full"
+          },
+          React.createElement(
+            "div",
+            {
+              className:
+                "max-w-xl w-full border-4 p-8 text-center shadow-2xl relative " +
+                (isVictory
+                  ? "border-green-500 bg-green-900/20"
+                  : "border-red-500 bg-red-900/20")
+            },
+            React.createElement("div", {
+              className:
+                "absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 " +
+                (isVictory
+                  ? "border-green-500"
+                  : "border-red-500") +
+                " -mt-1 -ml-1"
+            }),
+            React.createElement("div", {
+              className:
+                "absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 " +
+                (isVictory
+                  ? "border-green-500"
+                  : "border-red-500") +
+                " -mt-1 -mr-1"
+            }),
+            React.createElement("div", {
+              className:
+                "absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 " +
+                (isVictory
+                  ? "border-green-500"
+                  : "border-red-500") +
+                " -mb-1 -ml-1"
+            }),
+            React.createElement("div", {
+              className:
+                "absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 " +
+                (isVictory
+                  ? "border-green-500"
+                  : "border-red-500") +
+                " -mb-1 -mr-1"
+            }),
+            React.createElement(
+              "h1",
+              {
+                className:
+                  "text-4xl font-bold tracking-widest mb-2 text-glow-strong " +
+                  (isVictory
+                    ? "text-green-400"
+                    : "text-red-500")
+              },
+              isVictory
+                ? "ЗАДАЧА ВЫПОЛНЕНА"
+                : "ПРОВАЛ МИССИИ"
+            ),
+            React.createElement("div", {
+              className: "h-0.5 w-full bg-current opacity-30 mb-8"
+            }),
+            React.createElement(
+              "div",
+              {
+                className:
+                  "grid grid-cols-2 gap-4 text-left font-mono text-sm mb-8 text-gray-300"
+              },
+              React.createElement(
+                "div",
+                { className: "text-gray-500" },
+                "ЛОКАЦИЯ:"
+              ),
+              React.createElement(
+                "div",
+                {
+                  className:
+                    "text-right font-bold text-white"
+                },
+                currentLevel.name
+              ),
+              React.createElement(
+                "div",
+                { className: "text-gray-500" },
+                "ОСТАТОК ГРЯЗИ:"
+              ),
+              React.createElement(
+                "div",
+                {
+                  className:
+                    "text-right font-bold text-white"
+                },
+                pollution.toFixed(1),
+                "%"
+              ),
+              React.createElement(
+                "div",
+                { className: "text-gray-500" },
+                "ВРЕМЯ:"
+              ),
+              React.createElement(
+                "div",
+                {
+                  className:
+                    "text-right font-bold text-white"
+                },
+                60 - timeLeft,
+                " сек."
+              ),
+              React.createElement(
+                "div",
+                { className: "text-gray-500" },
+                "СТАТУС:"
+              ),
+              React.createElement(
+                "div",
+                {
+                  className:
+                    "text-right font-bold " +
+                    (isVictory
+                      ? "text-green-400"
+                      : "text-red-500")
+                },
+                isVictory ? "ОЧИЩЕНО" : "ЗАРАЖЕНО"
+              )
+            ),
+            React.createElement(
+              "div",
+              {
+                className:
+                  "text-center italic text-xs text-gray-400 mb-8 border border-gray-800 bg-black/40 p-3"
+              },
+              isVictory
+                ? "Партия гордится тобой, товарищ! +1 талон на сгущенку."
+                : "Грязь победила. Объект помечен как БИОУГРОЗА."
+            ),
+            React.createElement(
+              "div",
+              { className: "flex gap-4" },
+              !isVictory &&
+                React.createElement(
+                  "button",
+                  {
+                    onClick: () => handleLevelComplete(false),
+                    className:
+                      "flex-1 px-4 py-4 border-2 border-red-500 text-red-500 font-bold uppercase hover:bg-red-500 hover:text-black transition-all shadow-lg"
+                  },
+                  "ВЕРНУТЬСЯ НА БАЗУ"
+                ),
+              isVictory &&
+                !isLastLevel &&
+                React.createElement(
+                  "button",
+                  {
+                    onClick: () => handleLevelComplete(true),
+                    className:
+                      "flex-1 px-4 py-4 border-2 border-green-500 text-green-400 font-bold uppercase hover:bg-green-500 hover:text-black transition-all shadow-lg bg-green-900/30"
+                  },
+                  "СЛЕДУЮЩИЙ ОБЪЕКТ"
+                ),
+              isVictory &&
+                isLastLevel &&
+                React.createElement(
+                  "button",
+                  {
+                    onClick: () => handleLevelComplete(true),
+                    className:
+                      "flex-1 px-4 py-4 border-2 border-green-500 text-green-400 font-bold uppercase hover:bg-green-500 hover:text-black transition-all shadow-lg bg-green-900/30 animate-pulse"
+                  },
+                  "ЗАВЕРШИТЬ ПРОТОКОЛ"
+                )
+            )
+          )
+        );
+      };
+
+      const renderCredits = () =>
+        React.createElement(
+          "div",
+          {
+            className:
+              "flex flex-col items-center justify-center h-full bg-[#0a0f0a] relative z-50 p-4 w-full overflow-hidden"
+          },
+          React.createElement("div", {
+            className:
+              "absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')] opacity-30 animate-pulse"
+          }),
+          React.createElement("div", {
+            className:
+              "absolute inset-0 bg-gradient-to-b from-green-900/20 via-black to-green-900/20"
+          }),
+          React.createElement(
+            "div",
+            {
+              className:
+                "relative z-10 w-full max-w-3xl bg-black/90 border-2 border-green-600 p-8 md:p-12 flex flex-col items-center text-center shadow-[0_0_50px_rgba(34,197,94,0.15)] animate-slide-up"
+            },
+            React.createElement("div", {
+              className:
+                "absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-green-500"
+            }),
+            React.createElement("div", {
+              className:
+                "absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-green-500"
+            }),
+            React.createElement("div", {
+              className:
+                "absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-green-500"
+            }),
+            React.createElement("div", {
+              className:
+                "absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-green-500"
+            }),
+            React.createElement(
+              "div",
+              {
+                className:
+                  "bg-green-900/50 text-green-400 border border-green-500 font-bold px-6 py-2 text-xs tracking-[0.3em] mb-8 shadow-[0_0_15px_rgba(34,197,94,0.2)] uppercase"
+              },
+              "ОТЧЕТ О ЗАВЕРШЕНИИ СИМУЛЯЦИИ"
+            ),
+            React.createElement(
+              "h1",
+              {
+                className:
+                  "text-4xl md:text-6xl font-black text-white mb-2 tracking-tighter uppercase text-glow-strong italic"
+              },
+              "ПРОТОКОЛ \"ЧИСТОТА\""
+            ),
+            React.createElement(
+              "div",
+              {
+                className:
+                  "flex justify-center gap-4 text-[10px] text-gray-500 font-mono mb-8 w-full border-b border-green-900/50 pb-4"
+              },
+              React.createElement(
+                "span",
+                null,
+                "СТАТУС: ",
+                React.createElement(
+                  "b",
+                  { className: "text-green-500" },
+                  "УСПЕХ"
+                )
+              ),
+              React.createElement("span", null, "//"),
+              React.createElement(
+                "span",
+                null,
+                "ДОСТУП: ",
+                React.createElement(
+                  "b",
+                  { className: "text-green-500" },
+                  "РАЗРЕШЕН"
+                )
+              ),
+              React.createElement("span", null, "//"),
+              React.createElement(
+                "span",
+                null,
+                "АРХИВ: ",
+                React.createElement(
+                  "b",
+                  { className: "text-green-500" },
+                  "#2025-OK"
+                )
+              )
+            ),
+            React.createElement(
+              "div",
+              {
+                className:
+                  "flex flex-col md:flex-row items-center gap-8 mb-10 w-full justify-center relative"
+              },
+              React.createElement(
+                "div",
+                { className: "relative group shrink-0" },
+                React.createElement("div", {
+                  className:
+                    "absolute inset-0 border-2 border-green-500/30 rounded-full animate-[spin_10s_linear_infinite]"
+                }),
+                React.createElement("div", {
+                  className:
+                    "absolute -inset-2 border border-green-500/10 rounded-full"
+                }),
+                React.createElement(
+                  "div",
+                  {
+                    className:
+                      "relative w-36 h-36 rounded-full border-4 border-green-500 overflow-hidden shadow-2xl bg-black"
+                  },
+                  React.createElement("img", {
+                    src: ASSETS.AUTHOR_AVATAR,
+                    alt: "Dev",
+                    className:
+                      "w-full h-full object-cover filter contrast-125"
+                  })
+                ),
+                React.createElement(
+                  "div",
+                  {
+                    className:
+                      "absolute bottom-0 left-1/2 -translate-x-1/2 bg-green-600 text-black text-[9px] px-2 font-bold uppercase"
+                  },
+                  "ADMIN"
+                )
+              ),
+              React.createElement(
+                "div",
+                { className: "text-left max-w-sm" },
+                React.createElement(
+                  "div",
+                  {
+                    className:
+                      "flex items-center gap-2 mb-1"
+                  },
+                  React.createElement("div", {
+                    className:
+                      "h-2 w-2 bg-green-500 animate-pulse"
+                  }),
+                  React.createElement(
+                    "div",
+                    {
+                      className:
+                        "text-green-500 text-xs font-mono tracking-widest uppercase"
+                    },
+                    "E-LEARNING DEVELOPER"
+                  )
+                ),
+                React.createElement(
+                  "div",
+                  {
+                    className:
+                      "text-3xl font-bold text-white mb-4 uppercase tracking-wide"
+                  },
+                  "ОЛЯ КОВАЛЬЧУК"
+                ),
+                React.createElement(
+                  "div",
+                  {
+                    className:
+                      "bg-green-900/10 border-l-2 border-green-600 pl-4 py-1"
+                  },
+                  React.createElement(
+                    "p",
+                    {
+                      className:
+                        "text-gray-300 text-xs leading-relaxed font-mono"
+                    },
+                    React.createElement(
+                      "span",
+                      {
+                        className: "text-green-700 font-bold"
+                      },
+                      ">> ЗАПИСЬ В ЛИЧНОМ ДЕЛЕ:"
+                    ),
+                    React.createElement("br", null),
+                    "Разработчик обучающих систем нового поколения. Специализация: превращение рутины в захватывающий игровой опыт.",
+                    React.createElement("br", null),
+                    React.createElement(
+                      "span",
+                      {
+                        className:
+                          "opacity-70 mt-1 block"
+                      },
+                      "\"Когнитивная нагрузка оптимизирована. Знания усвоены.\""
+                    )
+                  )
+                )
+              )
+            ),
+            React.createElement(
+              "div",
+              {
+                className:
+                  "w-full flex justify-center mb-8 relative z-20"
+              },
+              React.createElement(
+                "a",
+                {
+                  href: "https://t.me/mania_course",
+                  target: "_blank",
+                  rel: "noopener noreferrer",
+                  className:
+                    "relative overflow-hidden flex items-center justify-center gap-3 py-4 px-12 bg-blue-600/10 border border-blue-500 hover:bg-blue-600 group transition-all duration-300 w-full md:w-auto"
+                },
+                React.createElement("div", {
+                  className:
+                    "absolute inset-0 bg-blue-400/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"
+                }),
+                React.createElement(
+                  "span",
+                  {
+                    className:
+                      "relative z-10 text-blue-400 group-hover:text-white font-bold tracking-widest text-sm uppercase"
+                  },
+                  "ПОДПИСАТЬСЯ НА ТЕЛЕГРАМ КАНАЛ"
+                )
+              )
+            ),
+            React.createElement(
+              "div",
+              {
+                className:
+                  "text-[10px] text-green-800 font-mono tracking-widest opacity-50"
+              },
+              "SYSTEM_ID: MANIA_COURSE // END_OF_TRANSMISSION"
+            )
+          )
+        );
+
+      return React.createElement(
+        "div",
+        {
+          className:
+            "w-screen h-screen bg-[#020602] flex items-center justify-center overflow-hidden font-mono select-none"
+        },
+        React.createElement(
+          "div",
+          {
+            className:
+              "relative w-full max-w-6xl aspect-video bg-black border border-green-900 shadow-2xl overflow-hidden flex flex-col"
+          },
+          React.createElement("div", {
+            className:
+              "absolute inset-0 z-[100] pointer-events-none opacity-10 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%]"
+          }),
+          gameState === GameState.PRELOAD && renderPreloader(),
+          gameState === GameState.BOOT && renderBoot(),
+          gameState === GameState.INCOMING && renderIncoming(),
+          gameState === GameState.MAP && renderMap(),
+          gameState === GameState.BRIEFING && renderBriefing(),
+          gameState === GameState.INVENTORY && renderInventory(),
+          gameState === GameState.ACTION && renderAction(),
+          gameState === GameState.REPORT && renderReport(),
+          gameState === GameState.CREDITS && renderCredits()
+        )
+      );
+    };
+
+    ReactDOM
+      .createRoot(document.getElementById("root"))
+      .render(React.createElement(App));
+  </script>
+</body>
+</html>
